@@ -19,53 +19,62 @@ struct HLSAnalyzerCommand: ParsableCommand {
     )
     var pathOrURL: String
     
+    /// Add a --json flag to allow JSON output
+    @Flag(name: .long, help: "Output the analysis in JSON format instead of color-coded text.")
+    var json: Bool = false
+    
     func run() throws {
-        print("HLS-Analyzer: Starting analysis for \(pathOrURL)")
+        // Intro logging (only shown in plain-text mode)
+        if !json {
+            print("HLS-Analyzer: Starting analysis for \(pathOrURL)")
+        }
         
-        // Determine if it's a remote URL or local file
+        let (content, bytesCount) = try fetchOrReadContent(pathOrURL: pathOrURL)
+        
+        if !json {
+            print("Download complete. Bytes received: \(bytesCount)")
+        }
+        
+        // Perform playlist analysis, returning a structured object with type + text summary
+        let result = analyzePlaylist(content: content)
+        
+        if json {
+            // 1) Encode the analysis result to JSON
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
+            let data = try encoder.encode(result)
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print(jsonString)
+            }
+        } else {
+            // 2) Standard color-coded console output
+            print(result.analysisText)
+            print("Analysis complete.")
+        }
+    }
+    
+    // MARK: - Helper to fetch remote or local
+    
+    private func fetchOrReadContent(pathOrURL: String) throws -> (String, Int) {
+        // Decide if it's remote http(s) or local path
         if let remoteURL = URL(string: pathOrURL),
            let scheme = remoteURL.scheme,
            ["http","https"].contains(scheme.lowercased()) {
             
-            print("Detected remote URL. Downloading...")
-            let (content, bytesCount) = try fetchRemoteManifest(from: remoteURL)
-            print("Download complete. Bytes received: \(bytesCount)")
+            // Remote download
+            if !json {
+                print("Detected remote URL. Downloading...")
+            }
+            return try fetchRemoteManifest(from: remoteURL)
             
-            analyzePlaylist(content: content)
         } else {
-            print("Detected local file path. Reading...")
-            let (content, bytesCount) = try readLocalManifest(at: pathOrURL)
-            print("File read complete. Bytes read: \(bytesCount)")
-            
-            analyzePlaylist(content: content)
+            // Local file read
+            if !json {
+                print("Detected local file path. Reading...")
+            }
+            return try readLocalManifest(at: pathOrURL)
         }
     }
-    
-    // MARK: - Analyze
-    
-    private func analyzePlaylist(content: String) {
-        let playlistType = HLSAnalyzerCore.determinePlaylistType(from: content)
-        switch playlistType {
-        case .master:
-            print("Playlist type detected: Master (Multivariant)")
-            let masterAnalyzer = MasterPlaylistAnalyzer()
-            let masterSummary = masterAnalyzer.analyze(content: content)
-            print(masterSummary)
-            
-        case .media:
-            print("Playlist type detected: Media (Variant)")
-            let mediaAnalyzer = MediaPlaylistAnalyzer()
-            let mediaSummary = mediaAnalyzer.analyze(content: content)
-            print(mediaSummary)
-            
-        case .unknown:
-            print("Playlist type detected: Unknown")
-        }
-        
-        print("Analysis complete.")
-    }
-    
-    // MARK: - Fetching / Reading
     
     private func fetchRemoteManifest(from url: URL) throws -> (content: String, bytesCount: Int) {
         let semaphore = DispatchSemaphore(value: 0)
@@ -102,6 +111,45 @@ struct HLSAnalyzerCommand: ParsableCommand {
         }
         return (content, content.utf8.count)
     }
+    
+    // MARK: - Analyze the Playlist
+    
+    /// Returns both a structured result for JSON and a textual summary for normal output.
+    private func analyzePlaylist(content: String) -> AnalysisResult {
+        let playlistType = HLSAnalyzerCore.determinePlaylistType(from: content)
+        
+        switch playlistType {
+        case .master:
+            let masterAnalyzer = MasterPlaylistAnalyzer()
+            let masterSummary = masterAnalyzer.analyze(content: content)
+            return AnalysisResult(
+                playlistType: "Master",
+                analysisText: masterSummary
+            )
+            
+        case .media:
+            let mediaAnalyzer = MediaPlaylistAnalyzer()
+            let mediaSummary = mediaAnalyzer.analyze(content: content)
+            return AnalysisResult(
+                playlistType: "Media",
+                analysisText: mediaSummary
+            )
+            
+        case .unknown:
+            return AnalysisResult(
+                playlistType: "Unknown",
+                analysisText: "Playlist type detected: Unknown\n"
+            )
+        }
+    }
+    
+    // MARK: - Data Structure for JSON Output
+    
+    /// Minimal container for analysis results
+    private struct AnalysisResult: Codable {
+        let playlistType: String
+        let analysisText: String
+    }
 }
 
 // MARK: - Error Types
@@ -110,7 +158,6 @@ struct ValidationError: Error, CustomStringConvertible {
     var description: String
     init(_ message: String) { self.description = message }
 }
-
 struct RuntimeError: Error, CustomStringConvertible {
     var description: String
     init(_ message: String) { self.description = message }
