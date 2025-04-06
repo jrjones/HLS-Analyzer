@@ -9,11 +9,12 @@ public enum SimpleHLSParser {
             .filter { !$0.isEmpty }
         
         for (index, line) in lines.enumerated() {
+            // #EXT-X-STREAM-INF:
             if line.hasPrefix("#EXT-X-STREAM-INF:") {
                 let attributes = String(line.dropFirst("#EXT-X-STREAM-INF:".count))
                 let parsedAttrs = parseAttributes(from: attributes)
                 
-                // Next line typically the URI
+                // Next line is typically the URI
                 let nextIndex = index + 1
                 var uriLine: String? = nil
                 if nextIndex < lines.count, !lines[nextIndex].hasPrefix("#") {
@@ -23,17 +24,21 @@ public enum SimpleHLSParser {
                 var variant = VariantStream()
                 variant.bandwidth = intValue(parsedAttrs["BANDWIDTH"])
                 variant.codecs = parsedAttrs["CODECS"]
+                
+                // If there's a RESOLUTION=WxH, parse it
                 if let resString = parsedAttrs["RESOLUTION"] {
-                    let comps = resString.split(separator: "x")
+                    let comps = resString.split(separator: "x").map(String.init)
                     if comps.count == 2,
                        let w = Int(comps[0]),
                        let h = Int(comps[1]) {
-                        variant.resolution = (w, h)
+                        // Use our new Resolution struct
+                        variant.resolution = Resolution(width: w, height: h)
                     }
                 }
                 variant.uri = uriLine
                 master.variantStreams.append(variant)
             }
+            // #EXT-X-MEDIA:
             else if line.hasPrefix("#EXT-X-MEDIA:") {
                 let attributes = String(line.dropFirst("#EXT-X-MEDIA:".count))
                 let attrs = parseAttributes(from: attributes)
@@ -58,11 +63,14 @@ public enum SimpleHLSParser {
             .filter { !$0.isEmpty }
         
         for (index, line) in lines.enumerated() {
+            // #EXT-X-TARGETDURATION
             if line.hasPrefix("#EXT-X-TARGETDURATION:") {
-                let value = line.replacingOccurrences(of: "#EXT-X-TARGETDURATION:", with: "")
+                let value = line
+                    .replacingOccurrences(of: "#EXT-X-TARGETDURATION:", with: "")
                     .trimmingCharacters(in: .whitespaces)
                 playlist.targetDuration = Int(value)
             }
+            // #EXTINF:
             else if line.hasPrefix("#EXTINF:") {
                 let extinfPart = String(line.dropFirst("#EXTINF:".count))
                 let durationStr = extinfPart.split(separator: ",").first.map(String.init) ?? "0"
@@ -82,12 +90,14 @@ public enum SimpleHLSParser {
         return playlist
     }
     
+    // MARK: - Private Helpers
+    
     private static func parseAttributes(from attributeString: String) -> [String: String] {
         var attributes: [String: String] = [:]
         let parts = attributeString.split(separator: ",").map(String.init)
         
         for part in parts {
-            let kv = part.split(separator: "=")
+            let kv = part.split(separator: "=", maxSplits: 1).map(String.init)
             guard kv.count == 2 else { continue }
             let key = kv[0].uppercased().trimmingCharacters(in: .whitespaces)
             let val = kv[1].trimmingCharacters(in: .whitespaces)

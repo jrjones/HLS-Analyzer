@@ -19,12 +19,12 @@ struct HLSAnalyzerCommand: ParsableCommand {
     )
     var pathOrURL: String
     
-    /// Add a --json flag to allow JSON output
+    /// Add a --json flag to allow JSON output (no ANSI color codes in the text).
     @Flag(name: .long, help: "Output the analysis in JSON format instead of color-coded text.")
     var json: Bool = false
     
     func run() throws {
-        // Intro logging (only shown in plain-text mode)
+        // Print an intro message in plain text mode
         if !json {
             print("HLS-Analyzer: Starting analysis for \(pathOrURL)")
         }
@@ -35,11 +35,12 @@ struct HLSAnalyzerCommand: ParsableCommand {
             print("Download complete. Bytes received: \(bytesCount)")
         }
         
-        // Perform playlist analysis, returning a structured object with type + text summary
+        // Perform playlist analysis, returning a structured object
+        // that includes both type info and the textual summary
         let result = analyzePlaylist(content: content)
         
         if json {
-            // 1) Encode the analysis result to JSON
+            // Encode the analysis result as JSON
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
             let data = try encoder.encode(result)
@@ -47,16 +48,16 @@ struct HLSAnalyzerCommand: ParsableCommand {
                 print(jsonString)
             }
         } else {
-            // 2) Standard color-coded console output
+            // Print color-coded text
             print(result.analysisText)
             print("Analysis complete.")
         }
     }
     
-    // MARK: - Helper to fetch remote or local
+    // MARK: - Fetch or Read
     
     private func fetchOrReadContent(pathOrURL: String) throws -> (String, Int) {
-        // Decide if it's remote http(s) or local path
+        // Decide if input is an http(s) URL or local file path
         if let remoteURL = URL(string: pathOrURL),
            let scheme = remoteURL.scheme,
            ["http","https"].contains(scheme.lowercased()) {
@@ -112,16 +113,17 @@ struct HLSAnalyzerCommand: ParsableCommand {
         return (content, content.utf8.count)
     }
     
-    // MARK: - Analyze the Playlist
+    // MARK: - Analyze
     
-    /// Returns both a structured result for JSON and a textual summary for normal output.
+    /// Returns both a structured result for JSON and a textual summary (with optional ANSI).
     private func analyzePlaylist(content: String) -> AnalysisResult {
         let playlistType = HLSAnalyzerCore.determinePlaylistType(from: content)
         
+        // We'll pass `useANSI: !json` to each analyzer, so color codes are only used in normal mode.
         switch playlistType {
         case .master:
             let masterAnalyzer = MasterPlaylistAnalyzer()
-            let masterSummary = masterAnalyzer.analyze(content: content)
+            let masterSummary = masterAnalyzer.analyze(content: content, useANSI: !json)
             return AnalysisResult(
                 playlistType: "Master",
                 analysisText: masterSummary
@@ -129,7 +131,7 @@ struct HLSAnalyzerCommand: ParsableCommand {
             
         case .media:
             let mediaAnalyzer = MediaPlaylistAnalyzer()
-            let mediaSummary = mediaAnalyzer.analyze(content: content)
+            let mediaSummary = mediaAnalyzer.analyze(content: content, useANSI: !json)
             return AnalysisResult(
                 playlistType: "Media",
                 analysisText: mediaSummary
@@ -143,9 +145,9 @@ struct HLSAnalyzerCommand: ParsableCommand {
         }
     }
     
-    // MARK: - Data Structure for JSON Output
+    // MARK: - Data Structures
     
-    /// Minimal container for analysis results
+    /// Minimal container for analysis results (for JSON encoding).
     private struct AnalysisResult: Codable {
         let playlistType: String
         let analysisText: String
@@ -158,6 +160,7 @@ struct ValidationError: Error, CustomStringConvertible {
     var description: String
     init(_ message: String) { self.description = message }
 }
+
 struct RuntimeError: Error, CustomStringConvertible {
     var description: String
     init(_ message: String) { self.description = message }

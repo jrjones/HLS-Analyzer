@@ -1,45 +1,58 @@
 import Foundation
 
 open class MasterPlaylistAnalyzer: Analyzer {
-    
-    public func analyze(content: String) -> String {
-        let master = SimpleHLSParser.parseMasterPlaylist(content)
+
+    public func analyze(content: String, useANSI: Bool = true) -> String {
+        // Example color references if useANSI is true
+        let Y = useANSI ? ANSI.yellow : ""
+        let G = useANSI ? ANSI.green : ""
+        let B = useANSI ? ANSI.blue : ""
+        let R = useANSI ? ANSI.red : ""
+        let W = useANSI ? ANSI.white : ""
+        let Reset = useANSI ? ANSI.reset : ""
         
-        var summary = "[Master Playlist Summary]\n"
+        let master = SimpleHLSParser.parseMasterPlaylist(content)
+
+        var summary = "\(W)[Master Playlist Summary]\(Reset)\n"
         summary += "Found \(master.variantStreams.count) variant streams.\n\n"
         
         for (i, stream) in master.variantStreams.enumerated() {
-            summary += "\(ANSI.white)Variant \(i + 1):\(ANSI.reset)\n"
+            summary += "\(W)Variant \(i + 1):\(Reset)\n"
+            
             if let bw = stream.bandwidth {
-                summary += "  \(ANSI.yellow)BANDWIDTH:\(ANSI.reset) \(ANSI.green)\(bw)\(ANSI.reset)\n"
+                summary += "  \(Y)BANDWIDTH:\(Reset) \(G)\(bw)\(Reset)\n"
             } else {
-                summary += "  \(ANSI.red)❌ Missing BANDWIDTH\(ANSI.reset)\n"
+                summary += "  \(R)❌ Missing BANDWIDTH\(Reset)\n"
             }
+            
             if let res = stream.resolution {
-                summary += "  \(ANSI.yellow)RESOLUTION:\(ANSI.reset) \(ANSI.green)\(res.width)x\(res.height)\(ANSI.reset)\n"
-            }
-            if let codecs = stream.codecs {
-                summary += "  \(ANSI.yellow)CODECS:\(ANSI.reset) \(ANSI.green)\(codecs)\(ANSI.reset)\n"
+                summary += "  \(Y)RESOLUTION:\(Reset) \(G)\(res.width)x\(res.height)\(Reset)\n"
             } else {
-                summary += "  \(ANSI.red)❌ Missing CODECS\(ANSI.reset)\n"
+                summary += "  \(R)❌ Missing RESOLUTION\(Reset)\n"
             }
+            
+            if let codecs = stream.codecs {
+                summary += "  \(Y)CODECS:\(Reset) \(G)\(codecs)\(Reset)\n"
+            } else {
+                summary += "  \(R)❌ Missing CODECS\(Reset)\n"
+            }
+            
             if let uri = stream.uri {
-                summary += "  \(ANSI.yellow)URI:\(ANSI.reset) \(ANSI.blue)\(uri)\(ANSI.reset)\n"
+                summary += "  \(Y)URI:\(Reset) \(B)\(uri)\(Reset)\n"
             }
             summary += "\n"
         }
         
-        // Check for conflicts (for example, do multiple variants have the same resolution but very different bandwidth?)
-        summary += validateVariants(master.variantStreams)
+        summary += validateVariants(master.variantStreams, useANSI: useANSI)
         
         if !master.renditionGroups.isEmpty {
-            summary += "\(ANSI.white)Renditions:\(ANSI.reset)\n"
+            summary += "\(W)Renditions:\(Reset)\n"
             for (j, group) in master.renditionGroups.enumerated() {
-                summary += "  \(ANSI.white)Rendition \(j + 1):\(ANSI.reset) "
-                summary += "\(ANSI.yellow)GROUP-ID\(ANSI.reset)=\(ANSI.green)\(group.groupID)\(ANSI.reset), "
-                summary += "\(ANSI.yellow)TYPE\(ANSI.reset)=\(ANSI.green)\(group.type ?? "")\(ANSI.reset), "
+                summary += "  \(W)Rendition \(j + 1):\(Reset) "
+                summary += "GROUP-ID=\(G)\(group.groupID)\(Reset), "
+                summary += "TYPE=\(G)\(group.type ?? "")\(Reset), "
                 if let uri = group.uri {
-                    summary += "\(ANSI.yellow)URI\(ANSI.reset)=\(ANSI.blue)\(uri)\(ANSI.reset)"
+                    summary += "URI=\(B)\(uri)\(Reset)"
                 }
                 summary += "\n"
             }
@@ -48,34 +61,34 @@ open class MasterPlaylistAnalyzer: Analyzer {
         return summary
     }
     
-    // MARK: - Variant Validation
-    
-    private func validateVariants(_ variants: [VariantStream]) -> String {
+    private func validateVariants(_ variants: [VariantStream], useANSI: Bool) -> String {
+        let Y = useANSI ? ANSI.yellow : ""
+        let G = useANSI ? ANSI.green : ""
+        let W = useANSI ? ANSI.white : ""
+        let Reset = useANSI ? ANSI.reset : ""
+        
         var warnings = ""
         
-        // Simple logic: if multiple variants share the same resolution but have extremely close or identical bandwidth, issue a warning.
-        // Or if one is drastically higher bandwidth than another of the same resolution, also warn.
-        
-        // Group by resolution to compare
-        let groupedByRes = Dictionary(grouping: variants) { $0.resolution }
+        let nonNilVariants = variants.filter { $0.resolution != nil }
+        let groupedByRes = Dictionary(grouping: nonNilVariants, by: { $0.resolution! })
         
         for (res, streams) in groupedByRes {
-            guard res != nil, streams.count > 1 else { continue }
-            // Compare bandwidth across these streams
-            var bandwidths = streams.compactMap { $0.bandwidth }.sorted()
-            if bandwidths.count <= 1 { continue }
-            
-            let minBW = bandwidths.first!
-            let maxBW = bandwidths.last!
-            // If min and max are too close or identical, might be pointless variants
-            if maxBW - minBW < 50000 { // e.g. less than 50K difference
-                warnings += "\(ANSI.yellow)⚠️ Variants with resolution \(res!.0)x\(res!.1) have nearly identical bandwidths. Possibly redundant.\(ANSI.reset)\n"
+            if streams.count > 1 {
+                let bws = streams.compactMap { $0.bandwidth }.sorted()
+                if bws.count > 1 {
+                    let minBW = bws.first!
+                    let maxBW = bws.last!
+                    if maxBW - minBW < 50000 {
+                        warnings += "\(Y)⚠️ Variants with resolution \(res.width)x\(res.height) have nearly identical bandwidth. Possibly redundant.\(Reset)\n"
+                    }
+                }
             }
         }
         
         if !warnings.isEmpty {
-            warnings = "\n\(ANSI.white)Variant Validation Warnings:\(ANSI.reset)\n" + warnings
+            warnings = "\n\(W)Variant Validation Warnings:\(Reset)\n" + warnings
         }
+        
         return warnings
     }
 }
