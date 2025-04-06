@@ -12,7 +12,7 @@ A simple Swift CLI tool for analyzing HLS (HTTP Live Streaming) playlists.
 
 ## Installation
 ```bash
-git clone https://github.com/<yourorg>/HLS-Analyzer.git
+git clone https://github.com/jrjones/HLS-Analyzer.git
 cd HLS-Analyzer
 swift build
 
