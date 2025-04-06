@@ -1,3 +1,4 @@
+// swift-tools-version: 6.1
 // HLS Analyzer (c) Copyright JRJ - https://github.com/jrjones/HLS-Analyzer
 // Licensed under MIT license, attribution requested 
 
