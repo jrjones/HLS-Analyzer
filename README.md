@@ -22,7 +22,7 @@ swift build
 # Analyze a local file
 `swift run hls-analyzer Samples/sample-media.m3u8`
 
-# Output in JSON (if implemented)
+# Output in JSON
 `swift run hls-analyzer --json Samples/sample-media.m3u8`
 
 For more details, please view the [design doc](design.md)
