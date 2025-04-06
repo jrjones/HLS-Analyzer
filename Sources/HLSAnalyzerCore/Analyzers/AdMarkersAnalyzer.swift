@@ -1,6 +1,5 @@
 import Foundation
 
-/// A struct to represent an ad marker found in the playlist.
 public struct AdMarker {
     public enum MarkerType {
         case discontinuity
@@ -11,24 +10,19 @@ public struct AdMarker {
     
     public var type: MarkerType
     public var rawLine: String
-    public var segmentIndex: Int?  // if we can track which segment it belongs to
-    public var attributes: [String: String] = [:]  // for #EXT-X-DATERANGE, etc.
+    public var segmentIndex: Int?
+    public var attributes: [String: String] = [:]
 }
 
-/// This analyzer inspects ad markers (SSAI, SGAI, or older style).
 open class AdMarkersAnalyzer: Analyzer {
     
-    /// Analyze a media playlist's text for ad markers:
-    /// - Returns a summary (String) plus an array of detected ad markers
     public func analyzeAdMarkers(in content: String) -> (summary: String, markers: [AdMarker]) {
         var summary = ""
         var markers: [AdMarker] = []
         
-        // Split lines
         let lines = content.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
         
-        // We'll track the "current segment index" for #EXTINF lines
         var segmentIndex = -1
         
         for (i, line) in lines.enumerated() {
@@ -36,7 +30,6 @@ open class AdMarkersAnalyzer: Analyzer {
                 segmentIndex += 1
             }
             else if line.hasPrefix("#EXT-X-DISCONTINUITY") {
-                // Classic SSAI or content changes
                 let marker = AdMarker(type: .discontinuity, rawLine: line, segmentIndex: segmentIndex)
                 markers.append(marker)
             }
@@ -49,10 +42,8 @@ open class AdMarkersAnalyzer: Analyzer {
                 markers.append(marker)
             }
             else if line.hasPrefix("#EXT-X-DATERANGE:") {
-                // SGAI / Interstitial approach
-                let attributeString = String(line.dropFirst("#EXT-X-DATERANGE:".count))
-                let attrs = parseAttributes(attributeString)
-                
+                let attrString = String(line.dropFirst("#EXT-X-DATERANGE:".count))
+                let attrs = parseAttributes(attrString)
                 var marker = AdMarker(type: .dateRange, rawLine: line, segmentIndex: segmentIndex)
                 marker.attributes = attrs
                 markers.append(marker)
@@ -60,11 +51,9 @@ open class AdMarkersAnalyzer: Analyzer {
         }
         
         if markers.isEmpty {
-            // No ad markers found
             return ("", [])
         }
         
-        // Summarize the discovered markers
         summary += "\n\(ANSI.white)Ad Marker Detection:\(ANSI.reset)\n"
         var usedDiscontinuity = false
         var usedDateRange = false
@@ -74,7 +63,8 @@ open class AdMarkersAnalyzer: Analyzer {
             switch marker.type {
             case .discontinuity:
                 usedDiscontinuity = true
-                summary += "\(ANSI.cyan)Found #EXT-X-DISCONTINUITY at segment index \(marker.segmentIndex ?? -1)\(ANSI.reset)\n"
+                // 🕺 DANCING EMOJI inserted here:
+                summary += "\(ANSI.cyan)🕺 #EXT-X-DISCONTINUITY at segment index \(marker.segmentIndex ?? -1)\(ANSI.reset)\n"
             case .dateRange:
                 usedDateRange = true
                 let classAttr = marker.attributes["CLASS"] ?? "(none)"
@@ -91,7 +81,6 @@ open class AdMarkersAnalyzer: Analyzer {
             }
         }
         
-        // Summarize type of ad insertion
         summary += "\n\(ANSI.white)Ad Insertion Type Detected:\(ANSI.reset) "
         var types = [String]()
         if usedDiscontinuity { types.append("SSAI (discontinuity-based)") }
@@ -107,7 +96,6 @@ open class AdMarkersAnalyzer: Analyzer {
         return (summary, markers)
     }
     
-    // Simple attribute parser
     private func parseAttributes(_ line: String) -> [String: String] {
         var result: [String : String] = [:]
         let items = line.split(separator: ",")
