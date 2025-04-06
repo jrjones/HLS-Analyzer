@@ -15,12 +15,14 @@ A simple Swift CLI tool for analyzing HLS (HTTP Live Streaming) playlists.
 git clone https://github.com/jrjones/HLS-Analyzer.git
 cd HLS-Analyzer
 swift build
-
+```
 # Analyze a remote playlist
-swift run hls-analyzer https://example.com/playlist.m3u8
+`swift run hls-analyzer https://example.com/playlist.m3u8`
 
 # Analyze a local file
-swift run hls-analyzer Samples/sample-media.m3u8
+`swift run hls-analyzer Samples/sample-media.m3u8`
 
 # Output in JSON (if implemented)
-swift run hls-analyzer --json Samples/sample-media.m3u8
+`swift run hls-analyzer --json Samples/sample-media.m3u8`
+
+For more details, please view the [design doc](design.md)
