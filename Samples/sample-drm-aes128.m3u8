@@ -1,0 +1,14 @@
+#EXTM3U
+#EXT-X-VERSION:5
+#EXT-X-TARGETDURATION:8
+
+#EXT-X-KEY:METHOD=AES-128,URI="https://keys.example.com/keyfile",KEYFORMAT="com.apple.streamingkeydelivery"
+
+#EXTINF:8.0,
+encrypted-seg1.ts
+#EXTINF:8.0,
+encrypted-seg2.ts
+#EXTINF:8.0,
+encrypted-seg3.ts
+
+#EXT-X-ENDLIST

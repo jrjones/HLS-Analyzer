@@ -2,7 +2,7 @@ import Foundation
 
 open class MediaPlaylistAnalyzer: Analyzer {
     
-    public func analyze(content: String) -> String {
+public func analyze(content: String) -> String {
         let playlist = SimpleHLSParser.parseMediaPlaylist(content)
         
         var summary = "\(ANSI.white)[Media Playlist Summary]\(ANSI.reset)\n"
@@ -12,6 +12,7 @@ open class MediaPlaylistAnalyzer: Analyzer {
         }
         summary += "Segments: \(playlist.segments.count)\n\n"
         
+        // List segments, etc.
         for (i, seg) in playlist.segments.enumerated() {
             summary += "\(ANSI.white)Segment \(i + 1):\(ANSI.reset) "
             summary += "\(ANSI.yellow)duration=\(ANSI.reset)\(ANSI.green)\(seg.duration)\(ANSI.reset)"
@@ -21,16 +22,17 @@ open class MediaPlaylistAnalyzer: Analyzer {
             summary += "\n"
         }
         
-        // CMAF Validation
+        // CMAF checks
         summary += validateCMAF(content: content)
         
-        // (Optional) DRM Analysis if you added a DRMAnalyzer
-        // let drmAnalyzer = DRMAnalyzer()
-        // summary += drmAnalyzer.analyzeDRM(in: content)
+        // AD MARKER checks
+        let adAnalyzer = AdMarkersAnalyzer()
+        let (adSummary, _) = adAnalyzer.analyzeAdMarkers(in: content)
+        summary += adSummary
         
+        // Return combined result
         return summary
-    }
-    
+    }    
     // MARK: - CMAF Validation
     
     public func validateCMAF(content: String) -> String {

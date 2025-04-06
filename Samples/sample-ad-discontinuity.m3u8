@@ -1,0 +1,17 @@
+#EXTM3U
+#EXT-X-TARGETDURATION:6
+
+#EXTINF:5.0,
+segment0.ts
+
+#EXT-X-DISCONTINUITY
+#EXTINF:5.0,
+ad-seg1.ts
+#EXTINF:5.0,
+ad-seg2.ts
+
+#EXT-X-DISCONTINUITY
+#EXTINF:5.0,
+segment1.ts
+
+#EXT-X-ENDLIST
