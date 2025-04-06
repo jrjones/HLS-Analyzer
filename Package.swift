@@ -1,4 +1,6 @@
-// swift-tools-version:5.8
+// HLS Analyzer (c) Copyright JRJ - https://github.com/jrjones/HLS-Analyzer
+// Licensed under MIT license, attribution requested 
+
 import PackageDescription
 
 let package = Package(

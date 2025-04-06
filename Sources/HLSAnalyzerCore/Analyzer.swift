@@ -1,3 +1,5 @@
+// HLS Analyzer (c) Copyright JRJ - https://github.com/jrjones/HLS-Analyzer
+// Licensed under MIT license, attribution requested 
 import Foundation
 
 open class Analyzer {
