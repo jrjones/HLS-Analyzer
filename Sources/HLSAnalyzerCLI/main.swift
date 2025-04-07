@@ -5,7 +5,6 @@ import Foundation
 import ArgumentParser
 import HLSAnalyzerCore
 
-@main
 struct HLSAnalyzerCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "hls-analyzer",
