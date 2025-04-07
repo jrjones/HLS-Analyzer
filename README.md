@@ -10,6 +10,8 @@ A simple Swift CLI tool for analyzing HLS (HTTP Live Streaming) playlists.
 - **Ad Marker Detection**: Shows `🕺` for discontinuities, identifies date-range (SGAI), cue out/in markers.
 - **Color-Coded Output**: Quick scanning for warnings/errors.
 
+![demo video gif](./Samples/hls-analyzer.gif)
+
 ## Installation
 ```bash
 git clone https://github.com/jrjones/HLS-Analyzer.git
