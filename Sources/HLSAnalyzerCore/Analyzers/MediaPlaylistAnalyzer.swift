@@ -2,6 +2,7 @@
 // Licensed under MIT license, attribution requested 
 
 import Foundation
+import Dispatch
 
 open class MediaPlaylistAnalyzer: Analyzer {
     
@@ -51,44 +52,62 @@ open class MediaPlaylistAnalyzer: Analyzer {
     
     /// Overload to include MP4 segment parsing for fMP4 segments using the playlist's base URL.
     public func analyze(content: String, useANSI: Bool = true, baseURL: URL?) -> String {
-        // Run the standard analysis first
+        // Base analysis (CMAF, ad markers, etc.)
         let baseSummary = analyze(content: content, useANSI: useANSI)
-        // If no baseURL provided, skip segment-level parsing
+        // Only proceed if we have a base URL to resolve segments
         guard let baseURL = baseURL else { return baseSummary }
-        // Re-parse the playlist to resolve segments
+        // Parse playlist to collect fMP4 segment URLs
         let playlist = SimpleHLSParser.parseMediaPlaylist(content)
-        let mp4Analyzer = MP4SegmentAnalyzer()
-        // Collect fMP4 segment-level parsing for each fMP4 segment
-        var fMP4Details = ""
+        var tasks: [(index: Int, uri: String, url: URL)] = []
         for (i, seg) in playlist.segments.enumerated() {
             guard let uri = seg.uri,
-                  uri.lowercased().hasSuffix(".m4s") || uri.lowercased().hasSuffix(".mp4"),
-                  let relURL = URL(string: uri, relativeTo: baseURL) else {
-                continue
+                  let rel = URL(string: uri, relativeTo: baseURL),
+                  rel.path.lowercased().hasSuffix(".m4s") || rel.path.lowercased().hasSuffix(".mp4")
+            else { continue }
+            tasks.append((i, uri, rel.absoluteURL))
+        }
+        // If no fragmented-MP4 segments, return base summary
+        guard !tasks.isEmpty else { return baseSummary }
+        // Concurrently analyze each fMP4 segment
+        let mp4Analyzer = MP4SegmentAnalyzer()
+        var results: [(index: Int, uri: String, info: SegmentInfo)] = []
+        let group = DispatchGroup()
+        let syncQ = DispatchQueue(label: "mp4ResultsSync")
+        for task in tasks {
+            group.enter()
+            DispatchQueue.global().async {
+                let info = mp4Analyzer.analyzeSegment(url: task.url)
+                syncQ.sync { results.append((task.index, task.uri, info)) }
+                group.leave()
             }
-            // Resolve to absolute URL for Data(contentsOf:)
-            let segURL = relURL.absoluteURL
-            let info = mp4Analyzer.analyzeSegment(url: segURL)
-            fMP4Details += "\(ANSI.blue)Segment \(i + 1) (\(uri)):\(ANSI.reset)\n"
-            fMP4Details += "  \(ANSI.yellow)Size:\(ANSI.reset) \(info.sizeBytes) bytes\n"
+        }
+        group.wait()
+        // Sort results by segment index
+        results.sort { $0.index < $1.index }
+        // Build fMP4 details
+        var fMP4Details = ""
+        let header = "[Segment-by-Segment fMP4 Analysis]"
+        let H = useANSI ? ANSI.white : ""
+        let R = useANSI ? ANSI.reset : ""
+        fMP4Details += "\n\(H)\(header)\(R)\n"
+        for (idx, uri, info) in results {
+            let B = useANSI ? ANSI.blue : ""
+            let Y = useANSI ? ANSI.yellow : ""
+            let G = useANSI ? ANSI.green : ""
+            let RD = useANSI ? ANSI.red : ""
+            fMP4Details += "\(B)Segment \(idx + 1) (\(uri)):\(R)\n"
+            fMP4Details += "  \(Y)Size:\(R) \(info.sizeBytes) bytes\n"
             if info.issues.isEmpty {
-                fMP4Details += "  \(ANSI.green)No MP4 parse issues.\(ANSI.reset)\n"
+                fMP4Details += "  \(G)No MP4 parse issues.\(R)\n"
             } else {
                 for issue in info.issues {
-                    fMP4Details += "  \(ANSI.red)❌ \(issue)\(ANSI.reset)\n"
+                    fMP4Details += "  \(RD)❌ \(issue)\(R)\n"
                 }
             }
             fMP4Details += "\n"
         }
-        // Only append if any fMP4 details were collected
-        guard !fMP4Details.isEmpty else {
-            return baseSummary
-        }
-        // Append fMP4 segment analysis section
-        var summary = baseSummary
-        summary += "\n\(ANSI.white)[Segment-by-Segment fMP4 Analysis]\(ANSI.reset)\n"
-        summary += fMP4Details
-        return summary
+        // Combine and return
+        return baseSummary + fMP4Details
     }
     
     private func validateCMAF(content: String, useANSI: Bool) -> String {
