@@ -64,11 +64,23 @@ struct HLSAnalyzerCommand: ParsableCommand {
     /// Returns the content, byte count, and the source URL for resolving segment URIs.
     private func fetchOrReadContent(pathOrURL: String) throws -> (String, Int, URL) {
         // Decide if input is an http(s) URL or local file path
-        if let remoteURL = URL(string: pathOrURL),
-           let scheme = remoteURL.scheme,
-           ["http","https"].contains(scheme.lowercased()) {
-            
-            // Remote download
+        let lower = pathOrURL.lowercased()
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
+            // Remote URL; try to construct URL, with fallback to percent-encoding
+            let remoteURL: URL
+            if let url = URL(string: pathOrURL),
+               let scheme = url.scheme,
+               ["http", "https"].contains(scheme.lowercased()) {
+                remoteURL = url
+            } else {
+                // Attempt to percent-encode any unsafe characters
+                let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=%")
+                guard let encoded = pathOrURL.addingPercentEncoding(withAllowedCharacters: allowed),
+                      let url2 = URL(string: encoded) else {
+                    throw ValidationError("Invalid URL: \(pathOrURL)")
+                }
+                remoteURL = url2
+            }
             if !json {
                 print("Detected remote URL. Downloading...")
             }
@@ -76,7 +88,6 @@ struct HLSAnalyzerCommand: ParsableCommand {
             // Use playlist directory as base for relative segment URIs
             let baseURL = remoteURL.deletingLastPathComponent()
             return (content, bytesCount, baseURL)
-            
         } else {
             // Local file read
             if !json {

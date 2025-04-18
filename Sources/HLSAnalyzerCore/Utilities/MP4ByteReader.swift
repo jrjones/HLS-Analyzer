@@ -21,20 +21,31 @@ struct MP4ByteReader {
 
     mutating func readUInt32() throws -> UInt32 {
         try checkAvailable(count: 4)
-        let value = data.withUnsafeBytes {
-            $0.load(fromByteOffset: offset, as: UInt32.self)
-        }
+        // Read 4 bytes manually to avoid misaligned loads (big-endian)
+        let start = offset
+        let b0 = UInt32(data[start])
+        let b1 = UInt32(data[start + 1])
+        let b2 = UInt32(data[start + 2])
+        let b3 = UInt32(data[start + 3])
         offset += 4
-        return UInt32(bigEndian: value)
+        return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3
     }
 
     mutating func readUInt64() throws -> UInt64 {
         try checkAvailable(count: 8)
-        let value = data.withUnsafeBytes {
-            $0.load(fromByteOffset: offset, as: UInt64.self)
-        }
+        // Read 8 bytes manually to avoid misaligned loads (big-endian)
+        let start = offset
+        let b0 = UInt64(data[start])
+        let b1 = UInt64(data[start + 1])
+        let b2 = UInt64(data[start + 2])
+        let b3 = UInt64(data[start + 3])
+        let b4 = UInt64(data[start + 4])
+        let b5 = UInt64(data[start + 5])
+        let b6 = UInt64(data[start + 6])
+        let b7 = UInt64(data[start + 7])
         offset += 8
-        return UInt64(bigEndian: value)
+        return (b0 << 56) | (b1 << 48) | (b2 << 40) | (b3 << 32)
+             | (b4 << 24) | (b5 << 16) | (b6 << 8)  | b7
     }
 
     mutating func readAtomType() throws -> String {
