@@ -49,6 +49,48 @@ open class MediaPlaylistAnalyzer: Analyzer {
         return summary
     }
     
+    /// Overload to include MP4 segment parsing for fMP4 segments using the playlist's base URL.
+    public func analyze(content: String, useANSI: Bool = true, baseURL: URL?) -> String {
+        // Run the standard analysis first
+        let baseSummary = analyze(content: content, useANSI: useANSI)
+        // If no baseURL provided, skip segment-level parsing
+        guard let baseURL = baseURL else { return baseSummary }
+        // Re-parse the playlist to resolve segments
+        let playlist = SimpleHLSParser.parseMediaPlaylist(content)
+        let mp4Analyzer = MP4SegmentAnalyzer()
+        // Collect fMP4 segment-level parsing for each fMP4 segment
+        var fMP4Details = ""
+        for (i, seg) in playlist.segments.enumerated() {
+            guard let uri = seg.uri,
+                  uri.lowercased().hasSuffix(".m4s") || uri.lowercased().hasSuffix(".mp4"),
+                  let relURL = URL(string: uri, relativeTo: baseURL) else {
+                continue
+            }
+            // Resolve to absolute URL for Data(contentsOf:)
+            let segURL = relURL.absoluteURL
+            let info = mp4Analyzer.analyzeSegment(url: segURL)
+            fMP4Details += "\(ANSI.blue)Segment \(i + 1) (\(uri)):\(ANSI.reset)\n"
+            fMP4Details += "  \(ANSI.yellow)Size:\(ANSI.reset) \(info.sizeBytes) bytes\n"
+            if info.issues.isEmpty {
+                fMP4Details += "  \(ANSI.green)No MP4 parse issues.\(ANSI.reset)\n"
+            } else {
+                for issue in info.issues {
+                    fMP4Details += "  \(ANSI.red)❌ \(issue)\(ANSI.reset)\n"
+                }
+            }
+            fMP4Details += "\n"
+        }
+        // Only append if any fMP4 details were collected
+        guard !fMP4Details.isEmpty else {
+            return baseSummary
+        }
+        // Append fMP4 segment analysis section
+        var summary = baseSummary
+        summary += "\n\(ANSI.white)[Segment-by-Segment fMP4 Analysis]\(ANSI.reset)\n"
+        summary += fMP4Details
+        return summary
+    }
+    
     private func validateCMAF(content: String, useANSI: Bool) -> String {
         let Y = useANSI ? ANSI.yellow : ""
         let G = useANSI ? ANSI.green : ""

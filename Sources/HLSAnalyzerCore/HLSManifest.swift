@@ -39,14 +39,3 @@ public struct MediaSegment {
     public var duration: Double
     public var uri: String?
 }
-
-/// A Hashable struct to store resolution instead of an (Int, Int) tuple
-public struct Resolution: Hashable {
-    public let width: Int
-    public let height: Int
-    
-    public init(width: Int, height: Int) {
-        self.width = width
-        self.height = height
-    }
-}

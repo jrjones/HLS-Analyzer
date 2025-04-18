@@ -5,6 +5,7 @@ import Foundation
 import ArgumentParser
 import HLSAnalyzerCore
 
+@main
 struct HLSAnalyzerCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "hls-analyzer",
@@ -31,7 +32,8 @@ struct HLSAnalyzerCommand: ParsableCommand {
             print("HLS-Analyzer: Starting analysis for \(pathOrURL)")
         }
         
-        let (content, bytesCount) = try fetchOrReadContent(pathOrURL: pathOrURL)
+        // Fetch playlist content and determine its source URL (remote or local)
+        let (content, bytesCount, sourceURL) = try fetchOrReadContent(pathOrURL: pathOrURL)
         
         if !json {
             print("Download complete. Bytes received: \(bytesCount)")
@@ -39,7 +41,7 @@ struct HLSAnalyzerCommand: ParsableCommand {
         
         // Perform playlist analysis, returning a structured object
         // that includes both type info and the textual summary
-        let result = analyzePlaylist(content: content)
+        let result = analyzePlaylist(content: content, sourceURL: sourceURL)
         
         if json {
             // Encode the analysis result as JSON
@@ -58,7 +60,9 @@ struct HLSAnalyzerCommand: ParsableCommand {
     
     // MARK: - Fetch or Read
     
-    private func fetchOrReadContent(pathOrURL: String) throws -> (String, Int) {
+    /// Fetches the playlist from a remote URL or reads from a local file.
+    /// Returns the content, byte count, and the source URL for resolving segment URIs.
+    private func fetchOrReadContent(pathOrURL: String) throws -> (String, Int, URL) {
         // Decide if input is an http(s) URL or local file path
         if let remoteURL = URL(string: pathOrURL),
            let scheme = remoteURL.scheme,
@@ -68,14 +72,21 @@ struct HLSAnalyzerCommand: ParsableCommand {
             if !json {
                 print("Detected remote URL. Downloading...")
             }
-            return try fetchRemoteManifest(from: remoteURL)
+            let (content, bytesCount) = try fetchRemoteManifest(from: remoteURL)
+            // Use playlist directory as base for relative segment URIs
+            let baseURL = remoteURL.deletingLastPathComponent()
+            return (content, bytesCount, baseURL)
             
         } else {
             // Local file read
             if !json {
                 print("Detected local file path. Reading...")
             }
-            return try readLocalManifest(at: pathOrURL)
+            let (content, bytesCount) = try readLocalManifest(at: pathOrURL)
+            // Use file's parent directory as base for relative segment URIs
+            let fileURL = URL(fileURLWithPath: pathOrURL)
+            let baseURL = fileURL.deletingLastPathComponent()
+            return (content, bytesCount, baseURL)
         }
     }
     
@@ -118,7 +129,8 @@ struct HLSAnalyzerCommand: ParsableCommand {
     // MARK: - Analyze
     
     /// Returns both a structured result for JSON and a textual summary (with optional ANSI).
-    private func analyzePlaylist(content: String) -> AnalysisResult {
+    /// Analyze playlist content, using the sourceURL to resolve segment URIs when needed.
+    private func analyzePlaylist(content: String, sourceURL: URL) -> AnalysisResult {
         let playlistType = HLSAnalyzerCore.determinePlaylistType(from: content)
         
         // We'll pass `useANSI: !json` to each analyzer, so color codes are only used in normal mode.
@@ -133,7 +145,8 @@ struct HLSAnalyzerCommand: ParsableCommand {
             
         case .media:
             let mediaAnalyzer = MediaPlaylistAnalyzer()
-            let mediaSummary = mediaAnalyzer.analyze(content: content, useANSI: !json)
+            // Pass sourceURL so MP4 segments can be parsed
+            let mediaSummary = mediaAnalyzer.analyze(content: content, useANSI: !json, baseURL: sourceURL)
             return AnalysisResult(
                 playlistType: "Media",
                 analysisText: mediaSummary
