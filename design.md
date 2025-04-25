@@ -159,7 +159,37 @@ This parser is easily replaceable by a third-party library (e.g. Comcast's Mamba
  
  - Finds #EXT-X-KEY, logs **🔐** if found, extracts METHOD, URI, etc.
 
- - Identifies possible FairPlay if KEYFORMAT="com.apple.streamingkeydelivery", etc.
+  - Identifies possible FairPlay if KEYFORMAT="com.apple.streamingkeydelivery", etc.
+  
+### 3.5 MP4 Segment Analysis
+
+This component delves into the ISO BMFF (MP4/CMAF) segments referenced by media playlists. It downloads, parses, and validates the raw segments, extracting rich metadata and reporting structural details.
+
+#### 3.5.1 Parsing & Data Extraction
+
+ - **Init-segment (moov) parsing**
+   - Detect and parse the "init" segment (containing a `moov` atom).
+   - Extract from `moov`:
+     - Movie header (`mvhd`): time-scale, duration.
+     - Track headers (`tkhd`): track IDs, width/height for video.
+     - Sample descriptions (`stsd` → `avcC`/`hvcC`/`esds`): codec strings, profiles, levels, channel counts, sample rates, HDR signaling.
+ - **Box-tree export**
+   - Populate `SegmentInfo.mp4Structure` by walking the parsed `MP4Atom` tree and emitting `MP4AtomSummary` entries, giving callers a raw box hierarchy for debugging.
+ - **Track-run details**
+   - In the `trun` parser, read full box fields (flags, per-sample durations, sizes, flags, composition offsets) rather than just the sample count.
+   - Compute per-segment duration from sample durations and cross-check against the playlist’s `#EXTINF` values.
+
+#### 3.5.2 Compliance & Validation Checks
+
+ - **CMAF box-level validation**
+   - Ensure each `traf` contains `tfhd`, `tfdt`, and at least one `trun`.
+   - Validate `tfhd` flags for default sample duration/size/flags; warn if missing defaults.
+   - Check each sample’s flags for a proper sync-sample bit (to avoid non-key-frame starts).
+   - If `sidx` atoms (segment indexing) are present, verify their entries match the actual byte ranges of the following `moof`+`mdat` boxes.
+ - **Timed-metadata / event messages**
+   - Parse `emsg` boxes to list any in-band metadata (SCTE-35, ad signaling, DRM PSSH messages, etc.).
+ - **DRM protection details**
+   - Parse `sinf`/`schi`/`tenc` boxes (and related) to report encryption schemes and parameters, beyond the playlist’s `#EXT-X-KEY` tags.
 
 
 ## 4) The CLI (HLSAnalyzerCLI/main.swift)

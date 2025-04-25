@@ -28,7 +28,14 @@ public class MP4SegmentAnalyzer {
         }
         var segmentInfo = SegmentInfo(sizeBytes: data.count)
         let result = parser.parseMP4(data: data)
+        // Record any parse issues
         segmentInfo.issues.append(contentsOf: result.issues)
+        // Export raw MP4 box hierarchy for debugging
+        segmentInfo.mp4Structure = result.atoms.map { summarize(atom: $0) }
+        // Detect and parse init segment (moov) if present
+        if let moovAtom = result.atoms.first(where: { $0.type == "moov" }) {
+            parseInitSegment(moovAtom, into: &segmentInfo)
+        }
 
         // If top-level atoms are empty, just record an issue.
         if result.atoms.isEmpty {
@@ -153,5 +160,255 @@ public class MP4SegmentAnalyzer {
         let sampleCount = payload.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self) }
         let sc = UInt32(bigEndian: sampleCount)
         trackFrag.sampleCount = sc
+    }
+
+    // Recursively summarize an MP4Atom into a lightweight summary for debugging
+    private func summarize(atom: MP4Atom) -> MP4AtomSummary {
+        return MP4AtomSummary(
+            type: atom.type,
+            size: atom.size,
+            children: atom.children.map { summarize(atom: $0) }
+        )
+    }
+
+    // Parse init segment (moov) metadata: movie header and track info
+    func parseInitSegment(_ moov: MP4Atom, into segmentInfo: inout SegmentInfo) {
+        // Parse mvhd for movie header and each trak for track metadata
+        for atom in moov.children {
+            switch atom.type {
+            case "mvhd":
+                parseMvhd(atom, into: &segmentInfo)
+            case "trak":
+                parseInitTrak(atom, into: &segmentInfo)
+            default:
+                continue
+            }
+        }
+    }
+
+    // Parse movie header box (mvhd) to extract timescale and duration
+    private func parseMvhd(_ mvhd: MP4Atom, into segmentInfo: inout SegmentInfo) {
+        guard let data = mvhd.payload else {
+            segmentInfo.issues.append("mvhd atom missing payload.")
+            return
+        }
+        if data.count < 12 {
+            segmentInfo.issues.append("mvhd atom too small.")
+            return
+        }
+        let version = data[0]
+        var timescale: UInt32 = 0
+        var duration: UInt64 = 0
+        if version == 1 {
+            let headerSize = 4 + 8 + 8
+            if data.count >= headerSize + 12 {
+                timescale = data[headerSize..<headerSize+4].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+                duration = data[headerSize+4..<headerSize+12].withUnsafeBytes { $0.load(as: UInt64.self).bigEndian }
+            } else {
+                segmentInfo.issues.append("mvhd atom version=1 too small for timescale and duration.")
+                return
+            }
+        } else {
+            let headerSize = 4 + 4 + 4
+            if data.count >= headerSize + 8 {
+                timescale = data[headerSize..<headerSize+4].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+                let dur32 = data[headerSize+4..<headerSize+8].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+                duration = UInt64(dur32)
+            } else {
+                segmentInfo.issues.append("mvhd atom version=0 too small for timescale and duration.")
+                return
+            }
+        }
+        if timescale > 0 {
+            let seconds = Double(duration) / Double(timescale)
+            segmentInfo.segmentDuration = seconds
+            segmentInfo.issues.append("Movie header: timescale=\(timescale), duration=\(duration) (~\(String(format: "%.3f", seconds))s)")
+        } else {
+            segmentInfo.issues.append("mvhd has zero timescale.")
+        }
+    }
+
+    // Parse a single trak box for track header and media info, including channels and sample rate
+    private func parseInitTrak(_ trak: MP4Atom, into segmentInfo: inout SegmentInfo) {
+        var trackID: UInt32?
+        var width: Int?
+        var height: Int?
+        var handlerType: String?
+        var codecStr: String?
+        var hdrType: String?
+        var encrypted: Bool = false
+        var channels: Int?
+        var sampleRateValue: Int?
+        
+        // Walk through child atoms of trak
+        for child in trak.children {
+            if child.type == "tkhd" {
+                if let (tid, w, h) = parseTkhd(child) {
+                    trackID = tid
+                    width = w
+                    height = h
+                }
+            } else if child.type == "mdia" {
+                // Within mdia, find handler and sample descriptions
+                for mdiaChild in child.children {
+                    if mdiaChild.type == "hdlr", let payload = mdiaChild.payload, payload.count >= 12 {
+                        let typeBytes = payload[8..<12]
+                        handlerType = String(data: typeBytes, encoding: .ascii)
+                    } else if mdiaChild.type == "minf" {
+                        for minfChild in mdiaChild.children {
+                            if minfChild.type == "stbl" {
+                                for stblChild in minfChild.children {
+                                    if stblChild.type == "stsd", let payload = stblChild.payload {
+                                        // Parse stsd payload to get entryCount and sample entries
+                                        var reader = MP4ByteReader(data: payload)
+                                        do {
+                                            // Skip version (1 byte) + flags (3 bytes)
+                                            try reader.skipBytes(4)
+                                            let entryCount = try reader.readUInt32()
+                                            for _ in 0..<entryCount {
+                                                let entrySize = try reader.readUInt32()
+                                                let entryType = try reader.readAtomType()
+                                                codecStr = entryType
+                                                let dataSize = Int(entrySize) - 8
+                                                if dataSize > 0 {
+                                                    let entryData = try reader.subdata(count: dataSize)
+                                                    // Detect encryption via 'sinf' atom in sample entry
+                                                    var sinfReader = MP4ByteReader(data: entryData)
+                                                    while sinfReader.bytesLeft > 8 {
+                                                        let nSize = try sinfReader.readUInt32()
+                                                        let nType = try sinfReader.readAtomType()
+                                                        if nType == "sinf" {
+                                                            encrypted = true
+                                                        }
+                                                        let skipLen = Int(nSize) - 8
+                                                        if skipLen > 0 {
+                                                            try sinfReader.skipBytes(skipLen)
+                                                        }
+                                                    }
+                                                    if handlerType == "soun" {
+                                                    // AudioSampleEntry: channelcount @ offset 16, samplerate @ offset 24 (16.16 fixed)
+                                                    if entryData.count >= 28 {
+                                                        let ch = entryData[16..<18].withUnsafeBytes { $0.load(as: UInt16.self).bigEndian }
+                                                        channels = Int(ch)
+                                                        let srFixed = entryData[24..<28].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+                                                        sampleRateValue = Int(srFixed >> 16)
+                                                    }
+                                                } else if handlerType == "vide" {
+                                                    // VideoSampleEntry: look for avcC or hvcC atom for codec details
+                                                    var nestedReader = MP4ByteReader(data: entryData)
+                                                    while nestedReader.bytesLeft > 8 {
+                                                        let nestedSize = try nestedReader.readUInt32()
+                                                        let nestedType = try nestedReader.readAtomType()
+                                                        if nestedType == "avcC" {
+                                                            hdrType = "avcC"
+                                                        } else if nestedType == "hvcC" {
+                                                            hdrType = "hvcC"
+                                                        }
+                                                        let skip = Int(nestedSize) - 8
+                                                        if skip > 0 {
+                                                            try nestedReader.skipBytes(skip)
+                                                        }
+                                                    }
+                                                }
+                                                }
+                                                break // only first entry
+                                            }
+                                        } catch {
+                                            segmentInfo.issues.append("Error parsing stsd: \(error)")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        guard let tid = trackID, let handler = handlerType else {
+            segmentInfo.issues.append("Track missing header (tkhd) or handler (hdlr).")
+            return
+        }
+        // Assign track info based on handler type
+        if handler == "vide" {
+            let res = (width != nil && height != nil) ? Resolution(width: width!, height: height!) : nil
+            segmentInfo.videoTrack = VideoTrackInfo(trackID: tid,
+                                                   codec: codecStr ?? "unknown",
+                                                   hdrType: hdrType,
+                                                   resolution: res,
+                                                   encrypted: encrypted)
+        } else if handler == "soun" {
+            segmentInfo.audioTrack = AudioTrackInfo(trackID: tid,
+                                                   codec: codecStr ?? "unknown",
+                                                   channels: channels,
+                                                   sampleRate: sampleRateValue,
+                                                   dolbyAtmos: false,
+                                                   encrypted: encrypted)
+        }
+    }
+
+    // Parse track header atom (tkhd) to extract trackID, width, and height
+    private func parseTkhd(_ tkhd: MP4Atom) -> (UInt32, Int?, Int?)? {
+        guard let data = tkhd.payload, data.count >= 8 else {
+            return nil
+        }
+        let version = data[0]
+        let base = 4
+        var tid: UInt32?
+        if version == 1 {
+            let offset = base + 8 + 8
+            if data.count >= offset + 4 {
+                tid = data[offset..<offset+4].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+            }
+        } else {
+            let offset = base + 4 + 4
+            if data.count >= offset + 4 {
+                tid = data[offset..<offset+4].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+            }
+        }
+        // width and height are fixed-point 16.16 at end of box
+        if data.count >= 8 {
+            let wFixed = data[data.count-8..<data.count-4].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+            let hFixed = data[data.count-4..<data.count].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+            let w = Int(wFixed >> 16)
+            let h = Int(hFixed >> 16)
+            if let trackID = tid {
+                return (trackID, w, h)
+            }
+        } else if let trackID = tid {
+            return (trackID, nil, nil)
+        }
+        return nil
+    }
+
+    // Parse mdia atom to extract handler type (vide/soun) and codec from stsd
+    private func parseMdia(_ mdia: MP4Atom) -> (String?, String?) {
+        var handler: String?
+        var codec: String?
+        for child in mdia.children {
+            if child.type == "hdlr", let payload = child.payload, payload.count >= 12 {
+                let typeBytes = payload[8..<12]
+                handler = String(data: typeBytes, encoding: .ascii)
+            } else if child.type == "minf" {
+                for minfChild in child.children {
+                    if minfChild.type == "stbl" {
+                        for stblChild in minfChild.children {
+                            if stblChild.type == "stsd", let payload = stblChild.payload, payload.count >= 8 {
+                                let entryCount = payload[4..<8].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+                                var cursor = 8
+                                for _ in 0..<entryCount {
+                                    if payload.count >= cursor + 8 {
+                                        let typeData = payload[cursor+4..<cursor+8]
+                                        codec = String(data: typeData, encoding: .ascii)
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return (handler, codec)
     }
 }

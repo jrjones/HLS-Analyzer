@@ -21,6 +21,9 @@ open class MediaPlaylistAnalyzer: Analyzer {
         if let targetDuration = playlist.targetDuration {
             summary += "\(Y)Target Duration:\(Reset) \(G)\(targetDuration)\(Reset)\n"
         }
+        // Compute total of all EXTINF durations
+        let totalDuration = playlist.segments.reduce(0.0) { sum, seg in sum + seg.duration }
+        summary += "\(Y)Total Duration:\(Reset) \(G)\(String(format: "%.3f", totalDuration))\(Reset)\n"
         summary += "Segments: \(playlist.segments.count)\n\n"
         
         for (i, seg) in playlist.segments.enumerated() {
@@ -89,6 +92,7 @@ open class MediaPlaylistAnalyzer: Analyzer {
         let header = "[Segment-by-Segment fMP4 Analysis]"
         let H = useANSI ? ANSI.white : ""
         let R = useANSI ? ANSI.reset : ""
+        let Y = useANSI ? ANSI.yellow : ""
         fMP4Details += "\n\(H)\(header)\(R)\n"
         for (idx, uri, info) in results {
             let B = useANSI ? ANSI.blue : ""
@@ -104,7 +108,54 @@ open class MediaPlaylistAnalyzer: Analyzer {
                     fMP4Details += "  \(RD)❌ \(issue)\(R)\n"
                 }
             }
+            // Additional segment info: audio channels, sample rate, resolution, HDR box
+            if let audio = info.audioTrack {
+                fMP4Details += "  \(Y)Channels:\(R) \(G)\(audio.channels.map(String.init) ?? "N/A")\(R)\n"
+                fMP4Details += "  \(Y)Sample Rate:\(R) \(G)\(audio.sampleRate.map { String($0) + " Hz" } ?? "N/A")\(R)\n"
+            }
+            if let video = info.videoTrack {
+                if let res = video.resolution {
+                    fMP4Details += "  \(Y)Resolution:\(R) \(G)\(res.width)x\(res.height)\(R)\n"
+                }
+                fMP4Details += "  \(Y)HDR Box:\(R) \(G)\(video.hdrType ?? "None")\(R)\n"
+            }
             fMP4Details += "\n"
+        }
+        // Add an aggregated summary for video engineers
+        let segmentCount = results.count
+        let totalSize = results.reduce(0) { $0 + $1.info.sizeBytes }
+        let avgSize = segmentCount > 0 ? totalSize / segmentCount : 0
+        // Determine audio/video track characteristics from first segment with data
+        let firstAudio = results.first { $0.info.audioTrack != nil }?.info.audioTrack
+        let firstVideo = results.first { $0.info.videoTrack != nil }?.info.videoTrack
+        // Encryption flags
+        let audioEncrypted = results.contains { $0.info.audioTrack?.encrypted == true }
+        let videoEncrypted = results.contains { $0.info.videoTrack?.encrypted == true }
+        // Build summary text
+        fMP4Details += "\(H)[Analysis Summary]\(R)\n"
+        fMP4Details += "  \(Y)Segments:\(R) \(segmentCount)\n"
+        fMP4Details += "  \(Y)Total Size:\(R) \(totalSize) bytes\n"
+        fMP4Details += "  \(Y)Avg Segment Size:\(R) \(avgSize) bytes\n"
+        if let td = playlist.targetDuration {
+            fMP4Details += "  \(Y)Playlist Target Duration:\(R) \(td) seconds\n"
+        }
+        // Total duration from playlist EXTINF tags
+        let extTotal = playlist.segments.reduce(0.0) { sum, seg in sum + seg.duration }
+        let formattedExtTotal = String(format: "%.3f", extTotal)
+        fMP4Details += "  \(Y)Total Playlist Duration (EXTINF):\(R) \(formattedExtTotal) seconds\n"
+        if let audio = firstAudio {
+            fMP4Details += "\n  \(Y)Audio Track Summary:\(R)\n"
+            fMP4Details += "    Channels: \(audio.channels.map(String.init) ?? "N/A")\n"
+            fMP4Details += "    Sample Rate: \(audio.sampleRate.map { String($0) + " Hz" } ?? "N/A")\n"
+            fMP4Details += "    Encrypted: \(audioEncrypted ? "Yes" : "No")\n"
+        }
+        if let video = firstVideo {
+            fMP4Details += "\n  \(Y)Video Track Summary:\(R)\n"
+            if let res = video.resolution {
+                fMP4Details += "    Resolution: \(res.width)x\(res.height)\n"
+            }
+            fMP4Details += "    HDR Box: \(video.hdrType ?? "None")\n"
+            fMP4Details += "    Encrypted: \(videoEncrypted ? "Yes" : "No")\n"
         }
         // Combine and return
         return baseSummary + fMP4Details
