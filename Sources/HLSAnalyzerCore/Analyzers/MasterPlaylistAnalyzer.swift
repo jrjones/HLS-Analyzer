@@ -95,3 +95,10 @@ open class MasterPlaylistAnalyzer: Analyzer {
         return warnings
     }
 }
+// MARK: - PlaylistAnalyzer Conformance
+extension MasterPlaylistAnalyzer: PlaylistAnalyzer {
+    public func analyze(content: String, useANSI: Bool, sourceURL: URL?) -> String {
+        // sourceURL not used for master playlists
+        return analyze(content: content, useANSI: useANSI)
+    }
+}

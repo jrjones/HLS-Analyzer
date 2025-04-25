@@ -15,7 +15,7 @@ public enum SimpleHLSParser {
             // #EXT-X-STREAM-INF:
             if line.hasPrefix("#EXT-X-STREAM-INF:") {
                 let attributes = String(line.dropFirst("#EXT-X-STREAM-INF:".count))
-                let parsedAttrs = parseAttributes(from: attributes)
+                let parsedAttrs = AttributeParser.parse(attributes)
                 
                 // Next line is typically the URI
                 let nextIndex = index + 1
@@ -44,7 +44,7 @@ public enum SimpleHLSParser {
             // #EXT-X-MEDIA:
             else if line.hasPrefix("#EXT-X-MEDIA:") {
                 let attributes = String(line.dropFirst("#EXT-X-MEDIA:".count))
-                let attrs = parseAttributes(from: attributes)
+                let attrs = AttributeParser.parse(attributes)
                 
                 guard let groupID = attrs["GROUP-ID"]?.replacingOccurrences(of: "\"", with: "") else { continue }
                 var rendition = RenditionGroup(groupID: groupID)
@@ -93,22 +93,6 @@ public enum SimpleHLSParser {
         return playlist
     }
     
-    // MARK: - Private Helpers
-    
-    private static func parseAttributes(from attributeString: String) -> [String: String] {
-        var attributes: [String: String] = [:]
-        let parts = attributeString.split(separator: ",").map(String.init)
-        
-        for part in parts {
-            let kv = part.split(separator: "=", maxSplits: 1).map(String.init)
-            guard kv.count == 2 else { continue }
-            let key = kv[0].uppercased().trimmingCharacters(in: .whitespaces)
-            let val = kv[1].trimmingCharacters(in: .whitespaces)
-            attributes[key] = val
-        }
-        
-        return attributes
-    }
     
     private static func intValue(_ str: String?) -> Int? {
         guard let s = str else { return nil }

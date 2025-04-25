@@ -152,3 +152,10 @@ open class MediaPlaylistAnalyzer: Analyzer {
         return cmafSummary
     }
 }
+// MARK: - PlaylistAnalyzer Conformance
+extension MediaPlaylistAnalyzer: PlaylistAnalyzer {
+    public func analyze(content: String, useANSI: Bool, sourceURL: URL?) -> String {
+        // Use baseURL (sourceURL) to enable segment resolution if provided
+        return analyze(content: content, useANSI: useANSI, baseURL: sourceURL)
+    }
+}

@@ -145,30 +145,29 @@ struct HLSAnalyzerCommand: ParsableCommand {
         let playlistType = HLSAnalyzerCore.determinePlaylistType(from: content)
         
         // We'll pass `useANSI: !json` to each analyzer, so color codes are only used in normal mode.
+        // Compose analyzers based on playlist type
+        var analyzers: [PlaylistAnalyzer]
         switch playlistType {
         case .master:
-            let masterAnalyzer = MasterPlaylistAnalyzer()
-            let masterSummary = masterAnalyzer.analyze(content: content, useANSI: !json)
-            return AnalysisResult(
-                playlistType: "Master",
-                analysisText: masterSummary
-            )
-            
+            analyzers = [MasterPlaylistAnalyzer()]
         case .media:
-            let mediaAnalyzer = MediaPlaylistAnalyzer()
-            // Pass sourceURL so MP4 segments can be parsed
-            let mediaSummary = mediaAnalyzer.analyze(content: content, useANSI: !json, baseURL: sourceURL)
-            return AnalysisResult(
-                playlistType: "Media",
-                analysisText: mediaSummary
-            )
-            
+            analyzers = [MediaPlaylistAnalyzer()]
         case .unknown:
             return AnalysisResult(
                 playlistType: "Unknown",
                 analysisText: "Playlist type detected: Unknown\n"
             )
         }
+        // Run each analyzer and concatenate results
+        let summaries = analyzers.map { analyzer in
+            analyzer.analyze(content: content, useANSI: !json, sourceURL: sourceURL)
+        }
+        let combined = summaries.joined(separator: "\n")
+        let typeString = (playlistType == .master ? "Master" : "Media")
+        return AnalysisResult(
+            playlistType: typeString,
+            analysisText: combined
+        )
     }
     
     // MARK: - Data Structures

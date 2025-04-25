@@ -51,7 +51,7 @@ open class AdMarkersAnalyzer: Analyzer {
             }
             else if line.hasPrefix("#EXT-X-DATERANGE:") {
                 let attrString = String(line.dropFirst("#EXT-X-DATERANGE:".count))
-                let attrs = parseAttributes(attrString)
+                let attrs = AttributeParser.parse(attrString)
                 var marker = AdMarker(type: .dateRange, rawLine: line, segmentIndex: segmentIndex)
                 marker.attributes = attrs
                 markers.append(marker)
@@ -72,7 +72,8 @@ open class AdMarkersAnalyzer: Analyzer {
             switch marker.type {
             case .discontinuity:
                 usedDiscontinuity = true
-                summary += "\(C)🕺 #EXT-X-DISCONTINUITY at segment index \(marker.segmentIndex ?? -1)\(Reset)\n"
+                // include 'Found' for consistency with other markers
+                summary += "\(C)🕺 Found #EXT-X-DISCONTINUITY at segment index \(marker.segmentIndex ?? -1)\(Reset)\n"
             case .dateRange:
                 usedDateRange = true
                 let classAttr = marker.attributes["CLASS"] ?? "(none)"
@@ -101,17 +102,4 @@ open class AdMarkersAnalyzer: Analyzer {
         return (summary, markers)
     }
     
-    private func parseAttributes(_ line: String) -> [String: String] {
-        var result: [String : String] = [:]
-        let items = line.split(separator: ",")
-        for item in items {
-            let kv = item.split(separator: "=", maxSplits: 1).map { String($0) }
-            if kv.count == 2 {
-                let key = kv[0].uppercased().trimmingCharacters(in: .whitespaces)
-                let val = kv[1].trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
-                result[key] = val
-            }
-        }
-        return result
-    }
 }
