@@ -1,6 +1,7 @@
 # HLS-Analyzer
 
 A simple Swift CLI tool for analyzing HLS (HTTP Live Streaming) playlists.  
+(Built as a simple exercise when I was re-learning swift, and to answer a question for myself about some MP4 atoms.)
 
 ## Features
 - **Master Playlist Analysis**: Summarizes variant streams, bandwidth, resolution, etc.
